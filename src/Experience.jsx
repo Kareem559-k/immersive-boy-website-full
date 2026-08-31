@@ -124,7 +124,7 @@ function Boy() {
 }
 
 function Rock() {
-  const { scene } = useGLTF(assetUrl('models/rock.glb'))
+  const { scene } = useGLTF(assetUrl('models/rock-reference.glb'))
   const model = useMemo(() => prepareModel(scene, 'width', ROCK_WIDTH), [scene])
 
   return (
@@ -742,4 +742,4 @@ export default function Experience({
 }
 
 useGLTF.preload(assetUrl('models/boy-reference.glb'))
-useGLTF.preload(assetUrl('models/rock.glb'))
+useGLTF.preload(assetUrl('models/rock-reference.glb'))
