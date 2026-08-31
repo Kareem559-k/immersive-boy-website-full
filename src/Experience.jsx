@@ -44,9 +44,7 @@ const CAMERA_PAIR_SWING = 0.45 // subtle zoom only
 const CAMERA_TRANSITION_PULSE = 0.08
 
 const BOY_HEIGHT = 2.95
-// The supplied child STL includes a shallow circular print base. Lowering it
-// into the rock hides that base while leaving the feet visibly planted on top.
-const BOY_POSITION = [0, -0.16, 0]
+const BOY_POSITION = [0, 0.018, 0]
 const ROCK_WIDTH = 2.85
 const ROCK_POSITION = [0, 0.015, 0]
 const ROCK_ROTATION_Y = 0.15
@@ -119,7 +117,7 @@ const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')
 
 function Boy() {
   const group = useRef()
-  const geometry = useLoader(STLLoader, assetUrl('models/boy.stl'))
+  const geometry = useLoader(STLLoader, assetUrl('models/boy-clean.stl'))
   const model = useMemo(() => {
     const source = new THREE.Mesh(
       geometry.clone(),
@@ -1126,5 +1124,5 @@ export default function Experience({
   )
 }
 
-useLoader.preload(STLLoader, assetUrl('models/boy.stl'))
+useLoader.preload(STLLoader, assetUrl('models/boy-clean.stl'))
 useLoader.preload(STLLoader, assetUrl('models/rockl.stl'))
