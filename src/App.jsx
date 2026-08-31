@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import { Preload } from '@react-three/drei'
 import Lenis from 'lenis'
 import Experience from './Experience'
 import CommunityPortal from './CommunityPortal'
@@ -30,6 +31,15 @@ export default function App() {
   const [uiProgress, setUiProgress] = useState(0)
   const [portalPage, setPortalPage] = useState(null)
   const [transitionTarget, setTransitionTarget] = useState(null)
+  const [compactViewport, setCompactViewport] = useState(
+    () => window.innerWidth < 780,
+  )
+
+  useEffect(() => {
+    const updateViewport = () => setCompactViewport(window.innerWidth < 780)
+    window.addEventListener('resize', updateViewport)
+    return () => window.removeEventListener('resize', updateViewport)
+  }, [])
 
   useEffect(() => {
     document.body.style.overflow = entered ? '' : 'hidden'
@@ -602,13 +612,14 @@ export default function App() {
           .brand-lockup { left: 20px; top: 28px; }
           .timeline {
             top: 30px;
-            left: auto;
-            right: 20px;
+            left: 120px;
+            right: 16px;
             transform: none;
-            width: 49vw;
+            width: auto;
+            grid-template-columns: 32px minmax(40px, 1fr) 32px;
             gap: 9px;
           }
-          .month-caption { bottom: 4vh; }
+          .month-caption { bottom: 92px; }
           .final-copy {
             left: 24px;
             right: 24px;
@@ -618,7 +629,7 @@ export default function App() {
           }
           .portal-dock {
             right: 20px;
-            bottom: 24px;
+            bottom: 18px;
             width: calc(100vw - 40px);
           }
           .dock-link { padding: 9px 6px 4px; }
@@ -642,10 +653,15 @@ export default function App() {
 
       <div className="canvas-shell">
         <Canvas
-          shadows
-          dpr={[1, 1.75]}
+          shadows={!compactViewport}
+          dpr={compactViewport ? [0.75, 1] : [1, 1.5]}
           camera={{ position: [0, 1.78, 12.2], fov: 41, near: 0.1, far: 100 }}
-          gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+          gl={{
+            antialias: !compactViewport,
+            alpha: false,
+            powerPreference: 'high-performance',
+            preserveDrawingBuffer: false,
+          }}
         >
           <Suspense fallback={null}>
             <Experience
@@ -655,6 +671,7 @@ export default function App() {
               storyEnd={STORY_END}
               finaleStart={FINALE_START}
             />
+            <Preload all />
           </Suspense>
         </Canvas>
       </div>

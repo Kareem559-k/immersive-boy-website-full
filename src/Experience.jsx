@@ -182,9 +182,10 @@ function Ground() {
 
 function makeCardTexture(index) {
   const canvas = document.createElement('canvas')
-  canvas.width = 1600
-  canvas.height = 900
+  canvas.width = 960
+  canvas.height = 540
   const ctx = canvas.getContext('2d')
+  ctx.scale(0.6, 0.6)
 
   const backgrounds = [
     ['#4b87ad', '#0b2941'],
@@ -237,7 +238,7 @@ function makeCardTexture(index) {
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
-  texture.anisotropy = 8
+  texture.anisotropy = 4
   return texture
 }
 
@@ -268,6 +269,7 @@ function Card({
   baseAngle,
   baseRadius,
   baseY,
+  active,
 }) {
   const group = useRef()
   const geometry = useRef()
@@ -296,6 +298,9 @@ function Card({
       !group.current || !material.current || !glowMaterial.current ||
       !lightSweep.current || !lightSweepMaterial.current
     ) return
+
+    group.current.visible = active
+    if (!active) return
 
     const step = storyStepRef.current
     const endMix = endMixRef.current
@@ -1164,24 +1169,23 @@ export default function Experience({
 
       <Ground />
 
-      {entered && (
-        <group>
-          {layout.map((item, index) => (
-            <Card
-              key={index}
-              index={index}
-              storyStepRef={storyStepRef}
-              velocityRef={velocityRef}
-              endMixRef={endMixRef}
-              onSelect={onSelectCard}
-              baseAngle={item.angle}
-              baseRadius={item.radius}
-              baseY={item.y}
-            />
-          ))}
-          <HelixDust endMixRef={endMixRef} />
-        </group>
-      )}
+      <group visible={entered}>
+        {layout.map((item, index) => (
+          <Card
+            key={index}
+            index={index}
+            storyStepRef={storyStepRef}
+            velocityRef={velocityRef}
+            endMixRef={endMixRef}
+            onSelect={onSelectCard}
+            baseAngle={item.angle}
+            baseRadius={item.radius}
+            baseY={item.y}
+            active={entered}
+          />
+        ))}
+        <HelixDust endMixRef={endMixRef} />
+      </group>
 
       <AmbientParticles endMixRef={endMixRef} />
 
