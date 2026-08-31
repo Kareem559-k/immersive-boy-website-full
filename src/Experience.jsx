@@ -44,9 +44,11 @@ const CAMERA_PAIR_SWING = 0.45 // subtle zoom only
 const CAMERA_TRANSITION_PULSE = 0.08
 
 const BOY_HEIGHT = 2.95
-const BOY_POSITION = [0, 0.02, 0]
+// The supplied child STL includes a shallow circular print base. Lowering it
+// into the rock hides that base while leaving the feet visibly planted on top.
+const BOY_POSITION = [0, -0.16, 0]
 const ROCK_WIDTH = 2.85
-const ROCK_POSITION = [0, -0.04, 0]
+const ROCK_POSITION = [0, 0.015, 0]
 const ROCK_ROTATION_Y = 0.15
 
 const clamp01 = (value) => Math.min(1, Math.max(0, value))
@@ -155,8 +157,8 @@ function Rock() {
     const source = new THREE.Mesh(
       geometry.clone(),
       new THREE.MeshStandardMaterial({
-        color: '#171b1d',
-        roughness: 0.98,
+        color: '#344d5c',
+        roughness: 0.94,
         metalness: 0,
       }),
     )
