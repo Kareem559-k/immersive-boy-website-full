@@ -99,9 +99,11 @@ function prepareModel(scene, mode, targetSize) {
   return object
 }
 
+const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
+
 function Boy() {
   const group = useRef()
-  const { scene } = useGLTF('/models/boy.glb')
+  const { scene } = useGLTF(assetUrl('models/boy.glb'))
   const model = useMemo(() => prepareModel(scene, 'height', BOY_HEIGHT), [scene])
 
   useFrame((state) => {
@@ -122,7 +124,7 @@ function Boy() {
 }
 
 function Rock() {
-  const { scene } = useGLTF('/models/rock.glb')
+  const { scene } = useGLTF(assetUrl('models/rock.glb'))
   const model = useMemo(() => prepareModel(scene, 'width', ROCK_WIDTH), [scene])
 
   return (
@@ -739,5 +741,5 @@ export default function Experience({
   )
 }
 
-useGLTF.preload('/models/boy.glb')
-useGLTF.preload('/models/rock.glb')
+useGLTF.preload(assetUrl('models/boy.glb'))
+useGLTF.preload(assetUrl('models/rock.glb'))
