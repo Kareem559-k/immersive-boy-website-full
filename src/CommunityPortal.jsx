@@ -125,10 +125,16 @@ function JoinCard() {
 
       <form onSubmit={(event) => event.preventDefault()}>
         {!isLogin && (
-          <label>
-            Full name
-            <input type="text" placeholder="Your name" autoComplete="name" />
-          </label>
+          <>
+            <label>
+              Full name
+              <input type="text" placeholder="Your name" autoComplete="name" />
+            </label>
+            <label>
+              Country
+              <input type="text" placeholder="Your country" autoComplete="country-name" />
+            </label>
+          </>
         )}
         <label>
           Email
