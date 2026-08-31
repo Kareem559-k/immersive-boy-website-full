@@ -145,6 +145,41 @@ function Rock() {
   )
 }
 
+function Ground() {
+  const sourceTexture = useLoader(
+    THREE.TextureLoader,
+    assetUrl('textures/dark-rock-ground.png'),
+  )
+
+  const texture = useMemo(() => {
+    const next = sourceTexture.clone()
+    next.wrapS = THREE.RepeatWrapping
+    next.wrapT = THREE.RepeatWrapping
+    next.repeat.set(9, 9)
+    next.colorSpace = THREE.SRGBColorSpace
+    next.needsUpdate = true
+    return next
+  }, [sourceTexture])
+
+  return (
+    <mesh
+      position={[0, ROCK_GROUND_Y - 0.012, 0]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      receiveShadow
+    >
+      <planeGeometry args={[80, 80, 1, 1]} />
+      <meshStandardMaterial
+        map={texture}
+        bumpMap={texture}
+        bumpScale={0.085}
+        color="#738294"
+        roughness={0.98}
+        metalness={0}
+      />
+    </mesh>
+  )
+}
+
 function makeCardTexture(index) {
   const canvas = document.createElement('canvas')
   canvas.width = 1600
@@ -240,6 +275,7 @@ function Card({
   const glowMaterial = useRef()
   const lightSweep = useRef()
   const lightSweepMaterial = useRef()
+  const windowFrame = useRef()
   const hoverMixRef = useRef(0)
   const [hovered, setHovered] = useState(false)
   const texture = useMemo(() => makeCardTexture(index), [index])
@@ -487,6 +523,38 @@ function Card({
       Math.sin(sweepProgress * Math.PI) * 0.52 * visibleWindow * (1 - endMix)
     material.current.emissiveIntensity += hoverMix * 0.08
 
+    if (windowFrame.current) {
+      const frameVisibility = (0.12 + visualFocus * 0.88) * (1 - endMix)
+      const frameScale = THREE.MathUtils.damp(
+        windowFrame.current.scale.x,
+        0.86 + visualFocus * 0.14,
+        8.5,
+        delta,
+      )
+      windowFrame.current.scale.setScalar(frameScale)
+      windowFrame.current.rotation.y = THREE.MathUtils.damp(
+        windowFrame.current.rotation.y,
+        (1 - visualFocus) * (isFuture ? -0.24 : 0.12),
+        7.5,
+        delta,
+      )
+      windowFrame.current.children.forEach((child) => {
+        if (!child.material) return
+        child.material.opacity = THREE.MathUtils.damp(
+          child.material.opacity,
+          frameVisibility * (isPast ? 0.42 : 0.82),
+          8,
+          delta,
+        )
+        child.material.emissiveIntensity = THREE.MathUtils.damp(
+          child.material.emissiveIntensity,
+          0.12 + visualFocus * 1.15,
+          8,
+          delta,
+        )
+      })
+    }
+
     // Curved / elastic panel deformation. This is subtle at rest and grows slightly with scroll speed.
     if (geometry.current && basePositions.current) {
       const position = geometry.current.attributes.position
@@ -521,6 +589,29 @@ function Card({
       position={[baseX, baseY, baseZ]}
       rotation={[0, baseAngle, baseTilt]}
     >
+      <group ref={windowFrame} position={[0, 0, -0.055]} scale={0.86}>
+        {[
+          [0, CARD_HEIGHT / 2 + 0.045, CARD_WIDTH + 0.14, 0.055],
+          [0, -CARD_HEIGHT / 2 - 0.045, CARD_WIDTH + 0.14, 0.055],
+          [-CARD_WIDTH / 2 - 0.045, 0, 0.055, CARD_HEIGHT + 0.14],
+          [CARD_WIDTH / 2 + 0.045, 0, 0.055, CARD_HEIGHT + 0.14],
+        ].map(([x, y, width, height], frameIndex) => (
+          <mesh key={frameIndex} position={[x, y, 0]} raycast={() => null}>
+            <boxGeometry args={[width, height, 0.045]} />
+            <meshStandardMaterial
+              color="#9adfff"
+              emissive="#41bfff"
+              emissiveIntensity={0.2}
+              roughness={0.34}
+              metalness={0.18}
+              transparent
+              opacity={0}
+              depthWrite={false}
+            />
+          </mesh>
+        ))}
+      </group>
+
       <mesh position={[0, 0, -0.035]} scale={[1.045, 1.075, 1]}>
         <planeGeometry args={[CARD_WIDTH, CARD_HEIGHT, 24, 14]} />
         <meshBasicMaterial
@@ -676,7 +767,7 @@ function SpaceStars() {
 
   const fineStars = useMemo(() => {
     // Much fewer than the reference photo, but still rich enough to feel like space.
-    const count = 520
+    const count = 1100
     const positions = new Float32Array(count * 3)
 
     for (let i = 0; i < count; i += 1) {
@@ -698,7 +789,7 @@ function SpaceStars() {
   }, [])
 
   const brightStars = useMemo(() => {
-    const count = 55
+    const count = 90
     const positions = new Float32Array(count * 3)
 
     for (let i = 0; i < count; i += 1) {
@@ -721,7 +812,7 @@ function SpaceStars() {
 
   const clusterStars = useMemo(() => {
     // A subtle milky blue cluster, inspired by the reference image.
-    const count = 120
+    const count = 230
     const positions = new Float32Array(count * 3)
 
     for (let i = 0; i < count; i += 1) {
@@ -777,10 +868,10 @@ function SpaceStars() {
 
         <pointsMaterial
           color="#c4ddff"
-          size={0.032}
+          size={0.022}
           sizeAttenuation
           transparent
-          opacity={0.43}
+          opacity={0.48}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />
@@ -796,7 +887,7 @@ function SpaceStars() {
 
         <pointsMaterial
           color="#ffffff"
-          size={0.078}
+          size={0.058}
           sizeAttenuation
           transparent
           opacity={0.72}
@@ -828,38 +919,60 @@ function SpaceStars() {
 }
 
 
+function makeNebulaGlowTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createRadialGradient(256, 256, 0, 256, 256, 256)
+  gradient.addColorStop(0, 'rgba(98, 190, 255, .72)')
+  gradient.addColorStop(0.22, 'rgba(40, 119, 190, .32)')
+  gradient.addColorStop(0.58, 'rgba(14, 63, 116, .10)')
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 512, 512)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  return texture
+}
+
 function BlueSpaceGlow() {
+  const glowTexture = useMemo(() => makeNebulaGlowTexture(), [])
+
   return (
     <group>
-      <mesh
-        position={[-10, 6, -22]}
-        scale={[12, 8, 1]}
-      >
-        <planeGeometry args={[1, 1]} />
-
-        <meshBasicMaterial
-          color="#0d5f9a"
+      <sprite position={[-12, 7, -24]} scale={[23, 16, 1]}>
+        <spriteMaterial
+          map={glowTexture}
+          color="#4aa9e8"
           transparent
-          opacity={0.030}
+          opacity={0.13}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />
-      </mesh>
+      </sprite>
 
-      <mesh
-        position={[13, -4, -26]}
-        scale={[15, 10, 1]}
-      >
-        <planeGeometry args={[1, 1]} />
-
-        <meshBasicMaterial
-          color="#136fa8"
+      <sprite position={[16, -2, -29]} scale={[29, 20, 1]}>
+        <spriteMaterial
+          map={glowTexture}
+          color="#216ba8"
           transparent
-          opacity={0.045}
+          opacity={0.12}
           depthWrite={false}
           blending={THREE.AdditiveBlending}
         />
-      </mesh>
+      </sprite>
+
+      <sprite position={[2, 11, -34]} scale={[18, 12, 1]}>
+        <spriteMaterial
+          map={glowTexture}
+          color="#6b75c7"
+          transparent
+          opacity={0.055}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </sprite>
     </group>
   )
 }
@@ -1049,14 +1162,7 @@ export default function Experience({
         <Rock />
       </group>
 
-      <mesh
-        position={[0, ROCK_GROUND_Y - 0.012, 0]}
-        rotation={[-Math.PI / 2, 0, 0]}
-        receiveShadow
-      >
-        <planeGeometry args={[80, 80]} />
-        <meshStandardMaterial color="#020914" roughness={1} metalness={0} />
-      </mesh>
+      <Ground />
 
       {entered && (
         <group>
@@ -1092,3 +1198,4 @@ export default function Experience({
 
 useLoader.preload(STLLoader, assetUrl('models/boy-clean.stl'))
 useLoader.preload(STLLoader, assetUrl('models/rockl.stl'))
+useLoader.preload(THREE.TextureLoader, assetUrl('textures/dark-rock-ground.png'))
