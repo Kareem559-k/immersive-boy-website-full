@@ -190,9 +190,10 @@ export default function App() {
           inset: 0;
           z-index: 10;
           display: flex;
-          align-items: flex-end;
-          justify-content: flex-start;
-          padding: 0 0 10vh 7vw;
+          flex-direction: column;
+          align-items: flex-start;
+          justify-content: flex-end;
+          padding: 0 0 8vh 6vw;
           pointer-events: none;
           background: transparent;
         }
@@ -222,7 +223,7 @@ export default function App() {
 
         .explore-button {
           display: block;
-          margin: 34px 0 0 145px;
+          margin: 24px 0 0;
           width: 126px;
           padding: 0 0 13px;
           font-size: 17px;
@@ -597,7 +598,7 @@ export default function App() {
           .big-name span:first-child { transform: translateX(-7vw); }
           .big-name span:last-child { transform: translateX(7vw); }
           .gate { padding: 0 22px 8vh; }
-          .explore-button { margin-left: 70px; }
+          .explore-button { margin-left: 0; }
           .brand-lockup { left: 20px; top: 28px; }
           .timeline {
             top: 30px;

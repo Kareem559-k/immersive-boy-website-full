@@ -11,22 +11,22 @@ const CARD_COUNT = 12
 const ORBIT_STEP = (Math.PI * 2) / CARD_COUNT
 const ORBIT_START = 0.12
 
-const CARD_WIDTH = 2.35
-const CARD_HEIGHT = 1.32
+const CARD_WIDTH = 1.34
+const CARD_HEIGHT = 0.75
 
 // MASTER SPACING: all background-card separation is multiplied by 2.
 const SPACING_MULTIPLIER = 2
 
-const CARD_BASE_RADIUS = 6.95
-const CARD_RADIUS_PITCH = 0.10 * SPACING_MULTIPLIER
-const ACTIVE_CARD_RADIUS = 6.30
-const ACTIVE_CARD_Y = 2.34
+// Tighter orbit matched to the closer camera framing.
+const CARD_BASE_RADIUS = 5.35
+const ACTIVE_CARD_RADIUS = 4.15
+const ACTIVE_CARD_Y = 1.28
 
 // Local helix spacing around the active card.
 // These three values are the important ×2 gaps.
-const HELIX_VERTICAL_GAP = 0.20 * SPACING_MULTIPLIER
-const HELIX_TANGENT_GAP = 0.72 * SPACING_MULTIPLIER
-const HELIX_DEPTH_GAP = 0.11 * SPACING_MULTIPLIER
+const HELIX_DEPTH_GAP = 0.08 * SPACING_MULTIPLIER
+const HELIX_PAST_ANGULAR_GAP = 2.05
+const HELIX_FUTURE_ANGULAR_GAP = 0.72
 
 // At most: active + 2 previous + 1 next.
 const PAST_VISIBLE_DISTANCE = 2.05
@@ -39,7 +39,6 @@ const CARD_HEIGHTS = Array.from(
   (_, index) => 0.52 + index * 0.72
 )
 
-const CAMERA_MID_RADIUS = 12.55
 const CAMERA_PAIR_SWING = 0.45 // subtle zoom only
 const CAMERA_TRANSITION_PULSE = 0.08
 
@@ -48,28 +47,13 @@ const BOY_POSITION = [0, 0.018, 0]
 const ROCK_WIDTH = 2.85
 const ROCK_POSITION = [0, 0.015, 0]
 const ROCK_ROTATION_Y = 0.15
+const ROCK_GROUND_Y = -1.26
 
 const clamp01 = (value) => Math.min(1, Math.max(0, value))
 
 function smoothstep01(value) {
   const t = clamp01(value)
   return t * t * (3 - 2 * t)
-}
-
-function easeInOut(t) {
-  return t < 0.5
-    ? 4 * t * t * t
-    : 1 - Math.pow(-2 * t + 2, 3) / 2
-}
-
-function sampleAngle(step) {
-  const safe = Math.min(CARD_COUNT - 1, Math.max(0, step))
-  const a = Math.floor(safe)
-  const b = Math.min(CARD_COUNT - 1, a + 1)
-  const t = easeInOut(safe - a)
-  const from = ORBIT_START + a * ORBIT_STEP
-  const to = ORBIT_START + b * ORBIT_STEP
-  return THREE.MathUtils.lerp(from, to, t)
 }
 
 function shortestAngleLerp(from, to, t) {
@@ -116,7 +100,6 @@ function prepareModel(scene, mode, targetSize) {
 const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')}`
 
 function Boy() {
-  const group = useRef()
   const geometry = useLoader(STLLoader, assetUrl('models/boy-clean.stl'))
   const model = useMemo(() => {
     const source = new THREE.Mesh(
@@ -132,18 +115,8 @@ function Boy() {
     return prepareModel(source, 'height', BOY_HEIGHT)
   }, [geometry])
 
-  useFrame((state) => {
-    if (!group.current) return
-
-    group.current.position.y =
-      BOY_POSITION[1] + Math.sin(state.clock.elapsedTime * 1.02) * 0.006
-
-    group.current.rotation.z =
-      Math.sin(state.clock.elapsedTime * 0.43) * 0.0022
-  })
-
   return (
-    <group ref={group} position={BOY_POSITION}>
+    <group position={BOY_POSITION}>
       <primitive object={model} />
     </group>
   )
@@ -332,7 +305,7 @@ function Card({
 
     // Past cards stay alive in the scene; only far future cards are hidden.
     group.current.visible =
-      isPast ||
+      (isPast && distance < 2.8) ||
       Math.abs(signedDistance) < 0.35 ||
       visibleWindow > 0.01 ||
       hovered
@@ -352,43 +325,31 @@ function Card({
 
     // TRUE LOCAL HELIX.
     // Separation is ×2 in tangent, depth and vertical directions.
-    const tangentDirection = Math.tanh(signedDistance * 1.35)
-    const tangentAmount =
-      HELIX_TANGENT_GAP *
-      Math.min(distance, 2.4) *
-      (1 - focus)
-
-    const tangentX =
-      Math.cos(baseAngle) *
-      tangentDirection *
-      tangentAmount
-
-    const tangentZ =
-      -Math.sin(baseAngle) *
-      tangentDirection *
-      tangentAmount
+    const orbitProgress = clamp01(step / (CARD_COUNT - 1))
+    const viewingAngle = ORBIT_START + orbitProgress * Math.PI * 2
+    const helixOffset = THREE.MathUtils.clamp(signedDistance, -2.8, 1.35)
+    const angularGap = isFuture
+      ? HELIX_FUTURE_ANGULAR_GAP
+      : HELIX_PAST_ANGULAR_GAP
+    const helixAngle = viewingAngle + helixOffset * angularGap
 
     // Every neighbouring card also moves farther outward in depth.
-    const backgroundRadius =
-      CARD_BASE_RADIUS +
-      Math.min(distance, 2.4) * HELIX_DEPTH_GAP +
-      (isPast ? Math.min(distance, 8) * 0.12 : 0)
+    const backgroundRadius = isFuture
+      ? 4.75 + Math.min(distance, 1.35) * 0.28
+      : 3.05 +
+        Math.min(distance, 2.4) * HELIX_DEPTH_GAP
 
-    const helixX =
-      Math.sin(baseAngle) * backgroundRadius +
-      tangentX
+    const helixX = Math.sin(helixAngle) * backgroundRadius
 
-    const helixZ =
-      Math.cos(baseAngle) * backgroundRadius +
-      tangentZ
+    const helixZ = Math.cos(helixAngle) * backgroundRadius
 
     // Rising/falling helix around the currently active card.
-    const helixY =
-      ACTIVE_CARD_Y +
-      signedDistance * HELIX_VERTICAL_GAP
+    const helixY = isFuture
+      ? ACTIVE_CARD_Y - Math.min(helixOffset, 1.35) * 1.55
+      : ACTIVE_CARD_Y + Math.min(Math.abs(helixOffset), 2.8) * 0.68
 
-    const activeX = Math.sin(baseAngle) * ACTIVE_CARD_RADIUS
-    const activeZ = Math.cos(baseAngle) * ACTIVE_CARD_RADIUS
+    const activeX = Math.sin(viewingAngle) * ACTIVE_CARD_RADIUS
+    const activeZ = Math.cos(viewingAngle) * ACTIVE_CARD_RADIUS
 
     // Scroll energy makes the card feel alive, like the reference site.
     const velocity = THREE.MathUtils.clamp(Math.abs(velocityRef.current), 0, 10)
@@ -397,8 +358,8 @@ function Card({
       0.045 *
       focus
 
-    const radialX = Math.sin(baseAngle) * breathe
-    const radialZ = Math.cos(baseAngle) * breathe
+    const radialX = Math.sin(helixAngle) * breathe
+    const radialZ = Math.cos(helixAngle) * breathe
 
     const targetX =
       THREE.MathUtils.lerp(helixX, activeX, focus) +
@@ -412,12 +373,7 @@ function Card({
           ) * 0.10
         : 0
 
-    // Every card you pass drops lower in the background,
-    // producing a readable descending helix trail.
-    const passedDrop =
-      isPast
-        ? Math.min(distance, 8) * 0.30
-        : 0
+    const passedDrop = 0
 
     const targetY =
       THREE.MathUtils.lerp(
@@ -440,7 +396,9 @@ function Card({
     group.current.position.z = THREE.MathUtils.damp(group.current.position.z, targetZ, 7.1, delta)
 
     // Past cards are large enough to read as a trail. Future cards are quieter.
-    const backgroundScale = isPast ? 0.56 : 0.50
+    const backgroundScale = isPast
+      ? Math.max(0.28, 0.58 - distance * 0.10)
+      : 0.31
     const depthPulse = Math.min(velocity * 0.003, 0.045) * focus
     const targetScale = (backgroundScale + focus * (1 - backgroundScale) + depthPulse) * (hovered ? 1.055 : 1)
     const scale = THREE.MathUtils.damp(group.current.scale.x, targetScale, 7.2, delta)
@@ -448,7 +406,7 @@ function Card({
 
     // Gentle card animation: rotation + slight scroll-velocity kick.
     const yawKick = THREE.MathUtils.clamp(velocityRef.current * 0.0032, -0.035, 0.035)
-    const heroYaw = baseAngle + Math.sin(state.clock.elapsedTime * 0.31 + index) * 0.012 * focus + yawKick * focus
+    const heroYaw = helixAngle + Math.sin(state.clock.elapsedTime * 0.31 + index) * 0.012 * focus + yawKick * focus
     const heroTilt =
       THREE.MathUtils.lerp(baseTilt, 0, focus) +
       Math.sin(state.clock.elapsedTime * 0.59 + index * 0.8) * 0.009 * focus
@@ -461,9 +419,7 @@ function Card({
 
     if (isPast) {
       // Passed cards remain readable as the history spiral.
-      baseOpacity =
-        0.22 +
-        0.10 * Math.exp(-distance * 0.24)
+      baseOpacity = 0.50 * Math.exp(-distance * 0.65)
     } else if (isFuture) {
       baseOpacity =
         0.055 +
@@ -982,8 +938,10 @@ export default function Experience({
     endMixRef.current = THREE.MathUtils.damp(endMixRef.current, endMix, 3.8, delta)
     const finalMix = endMixRef.current
 
-    // CAMERA: follows the 360° ring. Between cards it also rises/falls and banks.
-    let cameraAngle = sampleAngle(step)
+    // Camera study from the supplied recording: the statue stays locked while
+    // the camera makes one complete orbit and gradually dollies closer.
+    const orbitProgress = clamp01(step / (CARD_COUNT - 1))
+    let cameraAngle = ORBIT_START + orbitProgress * Math.PI * 2
     const segmentPhase = step - Math.floor(step)
     const transitionPulse = Math.sin(segmentPhase * Math.PI)
 
@@ -991,31 +949,31 @@ export default function Experience({
     // 0 = far, 2 = near, 4 = far, 6 = near ...
     const pairWave = Math.cos(step * Math.PI / 2)
 
+    const orbitEase = smoothstep01(orbitProgress)
     let cameraRadius =
-      CAMERA_MID_RADIUS +
-      CAMERA_PAIR_SWING * pairWave -
-      CAMERA_TRANSITION_PULSE * transitionPulse
+      THREE.MathUtils.lerp(10.35, 7.95, orbitEase) +
+      CAMERA_PAIR_SWING * pairWave * 0.32 -
+      CAMERA_TRANSITION_PULSE * transitionPulse +
+      transitionPulse * 0.58
     if (compactViewport) cameraRadius += 1.65
 
-    // More human / less mechanical orbit: small lateral weave and vertical arc.
-    cameraAngle += Math.sin(step * Math.PI / 2) * 0.075
+    // Mostly level orbit, with the restrained crane motion visible in the clip.
     let cameraY =
-      1.84 +
-      Math.sin(cameraAngle * 1.42) * 0.27 +
-      Math.sin(step * Math.PI) * 0.085 +
-      transitionPulse * 0.08
+      0.78 +
+      Math.sin(orbitProgress * Math.PI * 2 - .4) * 0.08 +
+      transitionPulse * 0.035
 
-    let targetY = 1.49 + Math.sin(cameraAngle * 1.18) * 0.06
-    let desiredFov = 41 - (1 - pairWave) * 0.10 - transitionPulse * 0.06
+    let targetY = 1.08 + Math.sin(orbitProgress * Math.PI * 2) * 0.035
+    let desiredFov = THREE.MathUtils.lerp(40.5, 37.8, orbitEase)
     if (compactViewport) desiredFov += 4.5
 
     if (finalMix > 0.001) {
       // Complete the visual 360° and settle in front for the final portrait.
-      cameraAngle = shortestAngleLerp(cameraAngle, Math.PI * 2, finalMix)
-      cameraRadius = THREE.MathUtils.lerp(cameraRadius, 9.45, finalMix)
-      cameraY = THREE.MathUtils.lerp(cameraY, 1.76, finalMix)
-      targetY = THREE.MathUtils.lerp(targetY, 1.50, finalMix)
-      desiredFov = THREE.MathUtils.lerp(desiredFov, 39.2, finalMix)
+      cameraAngle = shortestAngleLerp(cameraAngle, ORBIT_START + Math.PI * 2, finalMix)
+      cameraRadius = THREE.MathUtils.lerp(cameraRadius, 7.25, finalMix)
+      cameraY = THREE.MathUtils.lerp(cameraY, 0.82, finalMix)
+      targetY = THREE.MathUtils.lerp(targetY, 1.16, finalMix)
+      desiredFov = THREE.MathUtils.lerp(desiredFov, 36.5, finalMix)
     }
 
     cameraDesired.set(
@@ -1040,10 +998,9 @@ export default function Experience({
     state.camera.rotation.z += bankTarget * (1 - finalMix)
 
     if (hero.current) {
-      // Character rotates against the camera orbit so different sides are clearly revealed.
-      const heroTargetRotation = finalMix > 0.001
-        ? THREE.MathUtils.lerp(-cameraAngle * 0.42, 0, finalMix)
-        : -cameraAngle * 0.42
+      // The child and rock are a fixed statue. All changing views come from
+      // the camera, exactly like the reference movement.
+      const heroTargetRotation = 0
 
       hero.current.rotation.y = THREE.MathUtils.damp(
         hero.current.rotation.y,
@@ -1092,6 +1049,15 @@ export default function Experience({
         <Rock />
       </group>
 
+      <mesh
+        position={[0, ROCK_GROUND_Y - 0.012, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        receiveShadow
+      >
+        <planeGeometry args={[80, 80]} />
+        <meshStandardMaterial color="#020914" roughness={1} metalness={0} />
+      </mesh>
+
       {entered && (
         <group>
           {layout.map((item, index) => (
@@ -1114,8 +1080,8 @@ export default function Experience({
       <AmbientParticles endMixRef={endMixRef} />
 
       <ContactShadows
-        position={[0, -1.05, 0]}
-        opacity={0.38}
+        position={[0, ROCK_GROUND_Y, 0]}
+        opacity={0.5}
         scale={8}
         blur={2.8}
         far={4}
