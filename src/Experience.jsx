@@ -1,37 +1,51 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useFrame } from '@react-three/fiber'
-import { ContactShadows, useGLTF } from '@react-three/drei'
+import { useFrame, useLoader } from '@react-three/fiber'
+import { ContactShadows } from '@react-three/drei'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import * as THREE from 'three'
 
 const CARD_COUNT = 12
-const ORBIT_STEP = (Math.PI * 2) / CARD_COUNT // 30°: one clean 360° orbit
-const ORBIT_START = 0.08
 
-const CARD_WIDTH = 3.35
-const CARD_HEIGHT = 1.885
+// Twelve cards distributed around one clean 360° helix.
+const ORBIT_STEP = (Math.PI * 2) / CARD_COUNT
+const ORBIT_START = 0.12
 
-// Wider than V9 but still inside the camera. This keeps several cards readable at once.
-const CARD_BASE_RADIUS = 6.55
-const CARD_RADIUS_PITCH = 0.10
-const ACTIVE_CARD_RADIUS = 6.20
+const CARD_WIDTH = 2.35
+const CARD_HEIGHT = 1.32
+
+// MASTER SPACING: all background-card separation is multiplied by 2.
+const SPACING_MULTIPLIER = 2
+
+const CARD_BASE_RADIUS = 6.95
+const CARD_RADIUS_PITCH = 0.10 * SPACING_MULTIPLIER
+const ACTIVE_CARD_RADIUS = 6.30
 const ACTIVE_CARD_Y = 2.34
 
-// A true rising helix: every card advances around the character and climbs at
-// the same time. Small waves keep the layout organic without breaking the line.
-const CARD_HEIGHTS = [
-  0.52, 0.82, 1.16, 1.58,
-  1.95, 2.38, 2.82, 3.20,
-  3.62, 3.94, 4.25, 4.56,
-]
+// Local helix spacing around the active card.
+// These three values are the important ×2 gaps.
+const HELIX_VERTICAL_GAP = 0.20 * SPACING_MULTIPLIER
+const HELIX_TANGENT_GAP = 0.72 * SPACING_MULTIPLIER
+const HELIX_DEPTH_GAP = 0.11 * SPACING_MULTIPLIER
 
-const CAMERA_MID_RADIUS = 11.85
+// At most: active + 2 previous + 1 next.
+const PAST_VISIBLE_DISTANCE = 2.05
+const FUTURE_VISIBLE_DISTANCE = 1.05
+const VISIBILITY_FADE = 0.30
+
+// Dust guide only: a clean global rising helix.
+const CARD_HEIGHTS = Array.from(
+  { length: CARD_COUNT },
+  (_, index) => 0.52 + index * 0.72
+)
+
+const CAMERA_MID_RADIUS = 12.55
 const CAMERA_PAIR_SWING = 0.45 // subtle zoom only
 const CAMERA_TRANSITION_PULSE = 0.08
 
 const BOY_HEIGHT = 2.95
 const BOY_POSITION = [0, 0.02, 0]
-const ROCK_WIDTH = 4.15
+const ROCK_WIDTH = 2.85
 const ROCK_POSITION = [0, -0.04, 0]
 const ROCK_ROTATION_Y = 0.15
 
@@ -103,8 +117,20 @@ const assetUrl = (path) => `${import.meta.env.BASE_URL}${path.replace(/^\//, '')
 
 function Boy() {
   const group = useRef()
-  const { scene } = useGLTF(assetUrl('models/boy-reference.glb'))
-  const model = useMemo(() => prepareModel(scene, 'height', BOY_HEIGHT), [scene])
+  const geometry = useLoader(STLLoader, assetUrl('models/boy.stl'))
+  const model = useMemo(() => {
+    const source = new THREE.Mesh(
+      geometry.clone(),
+      new THREE.MeshStandardMaterial({
+        color: '#ecebe7',
+        roughness: 0.86,
+        metalness: 0,
+      }),
+    )
+    source.rotation.x = -Math.PI / 2
+    source.updateMatrixWorld(true)
+    return prepareModel(source, 'height', BOY_HEIGHT)
+  }, [geometry])
 
   useFrame((state) => {
     if (!group.current) return
@@ -124,8 +150,20 @@ function Boy() {
 }
 
 function Rock() {
-  const { scene } = useGLTF(assetUrl('models/rock-reference.glb'))
-  const model = useMemo(() => prepareModel(scene, 'width', ROCK_WIDTH), [scene])
+  const geometry = useLoader(STLLoader, assetUrl('models/rockl.stl'))
+  const model = useMemo(() => {
+    const source = new THREE.Mesh(
+      geometry.clone(),
+      new THREE.MeshStandardMaterial({
+        color: '#171b1d',
+        roughness: 0.98,
+        metalness: 0,
+      }),
+    )
+    source.rotation.x = -Math.PI / 2
+    source.updateMatrixWorld(true)
+    return prepareModel(source, 'width', ROCK_WIDTH)
+  }, [geometry])
 
   return (
     <group position={ROCK_POSITION} rotation={[0, ROCK_ROTATION_Y, 0]}>
@@ -255,6 +293,50 @@ function Card({
     const signedDistance = index - step
     const distance = Math.abs(signedDistance)
 
+    // IMPORTANT: define these BEFORE the visibility block.
+    // The previous version referenced isPast before initialization,
+    // which stopped the card animation frame and left every card at opacity 0.
+    const isPast = signedDistance < -0.28
+    const isFuture = signedDistance > 0.28
+
+    // Passed cards remain visible as a floating spiral trail in the background.
+    // Future cards are still limited so the scene never becomes crowded.
+    const pastTrailVisibility =
+      signedDistance <= 0
+        ? THREE.MathUtils.clamp(
+            0.30 - Math.max(0, distance - 1) * 0.018,
+            0.12,
+            0.30
+          )
+        : 0
+
+    const futureVisibility =
+      signedDistance > 0
+        ? 1 - smoothstep01(
+            (distance - FUTURE_VISIBLE_DISTANCE) / VISIBILITY_FADE
+          )
+        : 0
+
+    const activeVisibility =
+      Math.exp(-distance * distance * 2.4)
+
+    const visibleWindow = THREE.MathUtils.clamp(
+      Math.max(
+        activeVisibility,
+        pastTrailVisibility,
+        futureVisibility
+      ),
+      0,
+      1
+    )
+
+    // Past cards stay alive in the scene; only far future cards are hidden.
+    group.current.visible =
+      isPast ||
+      Math.abs(signedDistance) < 0.35 ||
+      visibleWindow > 0.01 ||
+      hovered
+
     // Hero focus is deliberately narrow. Background cards still remain visible as the spiral trail.
     // Keep the neighbours present so the eye can read the spiral as one
     // continuous ribbon, while the current card still owns the foreground.
@@ -267,27 +349,86 @@ function Card({
       delta,
     )
     const hoverMix = hoverMixRef.current
-    const isPast = signedDistance < -0.28
-    const isFuture = signedDistance > 0.28
 
-    // Anti-stacking: background cards move sideways along the tangent, not just backward.
-    const tangentDirection = Math.tanh(signedDistance * 1.28)
-    const tangentAmount = (0.82 + Math.min(distance, 4) * 0.075) * (1 - focus)
-    const tangentX = Math.cos(baseAngle) * tangentDirection * tangentAmount
-    const tangentZ = -Math.sin(baseAngle) * tangentDirection * tangentAmount
+    // TRUE LOCAL HELIX.
+    // Separation is ×2 in tangent, depth and vertical directions.
+    const tangentDirection = Math.tanh(signedDistance * 1.35)
+    const tangentAmount =
+      HELIX_TANGENT_GAP *
+      Math.min(distance, 2.4) *
+      (1 - focus)
+
+    const tangentX =
+      Math.cos(baseAngle) *
+      tangentDirection *
+      tangentAmount
+
+    const tangentZ =
+      -Math.sin(baseAngle) *
+      tangentDirection *
+      tangentAmount
+
+    // Every neighbouring card also moves farther outward in depth.
+    const backgroundRadius =
+      CARD_BASE_RADIUS +
+      Math.min(distance, 2.4) * HELIX_DEPTH_GAP +
+      (isPast ? Math.min(distance, 8) * 0.12 : 0)
+
+    const helixX =
+      Math.sin(baseAngle) * backgroundRadius +
+      tangentX
+
+    const helixZ =
+      Math.cos(baseAngle) * backgroundRadius +
+      tangentZ
+
+    // Rising/falling helix around the currently active card.
+    const helixY =
+      ACTIVE_CARD_Y +
+      signedDistance * HELIX_VERTICAL_GAP
 
     const activeX = Math.sin(baseAngle) * ACTIVE_CARD_RADIUS
     const activeZ = Math.cos(baseAngle) * ACTIVE_CARD_RADIUS
 
     // Scroll energy makes the card feel alive, like the reference site.
     const velocity = THREE.MathUtils.clamp(Math.abs(velocityRef.current), 0, 10)
-    const breathe = Math.sin(state.clock.elapsedTime * 0.82 + index * 0.73) * 0.045 * focus
+    const breathe =
+      Math.sin(state.clock.elapsedTime * 0.82 + index * 0.73) *
+      0.045 *
+      focus
+
     const radialX = Math.sin(baseAngle) * breathe
     const radialZ = Math.cos(baseAngle) * breathe
 
-    const targetX = THREE.MathUtils.lerp(baseX + tangentX, activeX, focus) + radialX
-    const targetY = THREE.MathUtils.lerp(baseY, ACTIVE_CARD_Y, focus)
-    const targetZ = THREE.MathUtils.lerp(baseZ + tangentZ, activeZ, focus) + radialZ
+    const targetX =
+      THREE.MathUtils.lerp(helixX, activeX, focus) +
+      radialX
+
+    const historyFloat =
+      isPast
+        ? Math.sin(
+            state.clock.elapsedTime * 0.30 +
+            index * 1.17
+          ) * 0.10
+        : 0
+
+    // Every card you pass drops lower in the background,
+    // producing a readable descending helix trail.
+    const passedDrop =
+      isPast
+        ? Math.min(distance, 8) * 0.30
+        : 0
+
+    const targetY =
+      THREE.MathUtils.lerp(
+        helixY - passedDrop + historyFloat,
+        ACTIVE_CARD_Y,
+        focus
+      )
+
+    const targetZ =
+      THREE.MathUtils.lerp(helixZ, activeZ, focus) +
+      radialZ
 
     group.current.position.x = THREE.MathUtils.damp(group.current.position.x, targetX, 7.1, delta)
     group.current.position.y = THREE.MathUtils.damp(
@@ -299,7 +440,7 @@ function Card({
     group.current.position.z = THREE.MathUtils.damp(group.current.position.z, targetZ, 7.1, delta)
 
     // Past cards are large enough to read as a trail. Future cards are quieter.
-    const backgroundScale = isPast ? 0.70 : 0.61
+    const backgroundScale = isPast ? 0.56 : 0.50
     const depthPulse = Math.min(velocity * 0.003, 0.045) * focus
     const targetScale = (backgroundScale + focus * (1 - backgroundScale) + depthPulse) * (hovered ? 1.055 : 1)
     const scale = THREE.MathUtils.damp(group.current.scale.x, targetScale, 7.2, delta)
@@ -316,15 +457,29 @@ function Card({
     group.current.rotation.z = THREE.MathUtils.damp(group.current.rotation.z, heroTilt, 7.0, delta)
 
     // Stronger spiral trail than V9.
-    let baseOpacity = 0.10
+    let baseOpacity = 0.08
+
     if (isPast) {
-      baseOpacity = 0.26 + 0.20 * Math.exp(-distance * 0.24)
+      // Passed cards remain readable as the history spiral.
+      baseOpacity =
+        0.22 +
+        0.10 * Math.exp(-distance * 0.24)
     } else if (isFuture) {
-      baseOpacity = 0.09 + 0.10 * Math.exp(-distance * 0.42)
+      baseOpacity =
+        0.055 +
+        0.09 * Math.exp(-distance * 0.48)
     }
+
+    // Passed cards keep their own readable trail opacity.
+    // Current/future cards still obey the visibility window.
+    const opacityVisibility =
+      isPast
+        ? 1
+        : visibleWindow
 
     const opacityTarget =
       (baseOpacity + visualFocus * (0.995 - baseOpacity) + (hovered ? 0.10 : 0)) *
+      opacityVisibility *
       (1 - endMix)
 
     material.current.opacity = THREE.MathUtils.damp(
@@ -334,20 +489,30 @@ function Card({
       delta,
     )
 
-    const trailBrightness = isPast ? 0.52 : 0.34
+    const trailBrightness = isPast ? 0.56 : 0.34
     const brightness = trailBrightness + visualFocus * (1 - trailBrightness)
     material.current.color.setRGB(brightness, brightness, brightness)
     material.current.emissive.set('#7bd3ff')
     material.current.emissiveIntensity = THREE.MathUtils.damp(
       material.current.emissiveIntensity,
-      hovered ? 0.62 : visualFocus * 0.16,
+      hovered
+        ? 0.62
+        : isPast
+          ? 0.055 + Math.exp(-distance * 0.35) * 0.045
+          : visualFocus * 0.16,
       9,
       delta,
     )
 
     glowMaterial.current.opacity = THREE.MathUtils.damp(
       glowMaterial.current.opacity,
-      (hovered ? 0.34 : focus * 0.07) * (1 - endMix),
+      (
+        hovered
+          ? 0.34
+          : isPast
+            ? 0.020 + Math.exp(-distance * 0.42) * 0.020
+            : focus * 0.07
+      ) * (isPast ? 1 : visibleWindow) * (1 - endMix),
       9,
       delta,
     )
@@ -363,7 +528,7 @@ function Card({
     )
     lightSweep.current.rotation.z = (index % 2 === 0 ? -1 : 1) * 0.10
     lightSweepMaterial.current.opacity =
-      Math.sin(sweepProgress * Math.PI) * 0.52 * (1 - endMix)
+      Math.sin(sweepProgress * Math.PI) * 0.52 * visibleWindow * (1 - endMix)
     material.current.emissiveIntensity += hoverMix * 0.08
 
     // Curved / elastic panel deformation. This is subtle at rest and grows slightly with scroll speed.
@@ -465,18 +630,18 @@ function Card({
 function HelixDust({ endMixRef }) {
   const ref = useRef()
   const positions = useMemo(() => {
-    const count = 220
+    const count = 300
     const arr = new Float32Array(count * 3)
 
     for (let i = 0; i < count; i += 1) {
       const t = i / (count - 1)
-      const angle = ORBIT_START + t * Math.PI * 2
+      const angle = ORBIT_START + t * ORBIT_STEP * (CARD_COUNT - 1)
       const indexFloat = t * (CARD_COUNT - 1)
       const a = Math.floor(indexFloat)
       const b = Math.min(CARD_COUNT - 1, a + 1)
       const local = indexFloat - a
       const y = THREE.MathUtils.lerp(CARD_HEIGHTS[a], CARD_HEIGHTS[b], local)
-      const radius = CARD_BASE_RADIUS + indexFloat * CARD_RADIUS_PITCH + Math.sin(indexFloat * 1.3) * 0.16
+      const radius = CARD_BASE_RADIUS + indexFloat * 0.10 + Math.sin(indexFloat * 1.3) * 0.16
 
       arr[i * 3] = Math.sin(angle) * radius
       arr[i * 3 + 1] = y + Math.sin(i * 1.7) * 0.035
@@ -547,6 +712,203 @@ function AmbientParticles({ endMixRef }) {
   )
 }
 
+
+function SpaceStars() {
+  const fineRef = useRef()
+  const brightRef = useRef()
+  const clusterRef = useRef()
+
+  const fineStars = useMemo(() => {
+    // Much fewer than the reference photo, but still rich enough to feel like space.
+    const count = 520
+    const positions = new Float32Array(count * 3)
+
+    for (let i = 0; i < count; i += 1) {
+      const radius = 15 + Math.random() * 38
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+
+      positions[i * 3] =
+        radius * Math.sin(phi) * Math.cos(theta)
+
+      positions[i * 3 + 1] =
+        radius * Math.cos(phi)
+
+      positions[i * 3 + 2] =
+        radius * Math.sin(phi) * Math.sin(theta)
+    }
+
+    return positions
+  }, [])
+
+  const brightStars = useMemo(() => {
+    const count = 55
+    const positions = new Float32Array(count * 3)
+
+    for (let i = 0; i < count; i += 1) {
+      const radius = 14 + Math.random() * 32
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+
+      positions[i * 3] =
+        radius * Math.sin(phi) * Math.cos(theta)
+
+      positions[i * 3 + 1] =
+        radius * Math.cos(phi)
+
+      positions[i * 3 + 2] =
+        radius * Math.sin(phi) * Math.sin(theta)
+    }
+
+    return positions
+  }, [])
+
+  const clusterStars = useMemo(() => {
+    // A subtle milky blue cluster, inspired by the reference image.
+    const count = 120
+    const positions = new Float32Array(count * 3)
+
+    for (let i = 0; i < count; i += 1) {
+      const a = Math.random() * Math.PI * 2
+      const r = Math.pow(Math.random(), 1.7) * 5.2
+
+      positions[i * 3] =
+        -4.5 + Math.cos(a) * r * 1.8
+
+      positions[i * 3 + 1] =
+        5.0 + Math.sin(a) * r * 0.85
+
+      positions[i * 3 + 2] =
+        -23 + (Math.random() - 0.5) * 3.5
+    }
+
+    return positions
+  }, [])
+
+  useFrame((state, delta) => {
+    const t = state.clock.elapsedTime
+
+    if (fineRef.current) {
+      fineRef.current.rotation.y += delta * 0.0015
+      fineRef.current.material.opacity =
+        0.43 + Math.sin(t * 0.42) * 0.025
+    }
+
+    if (brightRef.current) {
+      brightRef.current.rotation.y -= delta * 0.0008
+      brightRef.current.material.opacity =
+        0.70 + Math.sin(t * 0.82) * 0.07
+    }
+
+    if (clusterRef.current) {
+      clusterRef.current.rotation.z =
+        Math.sin(t * 0.035) * 0.012
+
+      clusterRef.current.material.opacity =
+        0.34 + Math.sin(t * 0.30) * 0.025
+    }
+  })
+
+  return (
+    <group>
+      <points ref={fineRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[fineStars, 3]}
+          />
+        </bufferGeometry>
+
+        <pointsMaterial
+          color="#c4ddff"
+          size={0.032}
+          sizeAttenuation
+          transparent
+          opacity={0.43}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <points ref={brightRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[brightStars, 3]}
+          />
+        </bufferGeometry>
+
+        <pointsMaterial
+          color="#ffffff"
+          size={0.078}
+          sizeAttenuation
+          transparent
+          opacity={0.72}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+
+      <points ref={clusterRef}>
+        <bufferGeometry>
+          <bufferAttribute
+            attach="attributes-position"
+            args={[clusterStars, 3]}
+          />
+        </bufferGeometry>
+
+        <pointsMaterial
+          color="#72b8ff"
+          size={0.060}
+          sizeAttenuation
+          transparent
+          opacity={0.34}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </points>
+    </group>
+  )
+}
+
+
+function BlueSpaceGlow() {
+  return (
+    <group>
+      <mesh
+        position={[-10, 6, -22]}
+        scale={[12, 8, 1]}
+      >
+        <planeGeometry args={[1, 1]} />
+
+        <meshBasicMaterial
+          color="#0d5f9a"
+          transparent
+          opacity={0.030}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      <mesh
+        position={[13, -4, -26]}
+        scale={[15, 10, 1]}
+      >
+        <planeGeometry args={[1, 1]} />
+
+        <meshBasicMaterial
+          color="#136fa8"
+          transparent
+          opacity={0.045}
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+
 export default function Experience({
   progressRef,
   onSelectCard,
@@ -565,10 +927,11 @@ export default function Experience({
   const layout = useMemo(() => {
     return Array.from({ length: CARD_COUNT }, (_, index) => {
       const angle = ORBIT_START + index * ORBIT_STEP
+      // Keep the absolute orbit clean; the ×6 depth spacing is applied
+      // dynamically around the currently active card.
       const radius =
         CARD_BASE_RADIUS +
-        index * CARD_RADIUS_PITCH +
-        Math.sin(index * 1.31) * 0.20
+        Math.sin(index * 1.31) * 0.14
       const y = CARD_HEIGHTS[index]
       return { angle, radius, y }
     })
@@ -697,12 +1060,32 @@ export default function Experience({
 
   return (
     <>
-      <fog attach="fog" args={['#102d49', 10.6, 30]} />
+      <color attach="background" args={['#01050d']} />
+      <fog attach="fog" args={['#061426', 17, 48]} />
 
-      <ambientLight intensity={0.58} />
-      <directionalLight position={[5, 8, 5]} intensity={3.5} color="#dff3ff" castShadow />
-      <spotLight position={[-5, 5, -4]} intensity={18} angle={0.5} penumbra={1} color="#63bde9" />
-      <pointLight position={[2, 3, 4]} intensity={7} distance={12} color="#c9ecff" />
+      <BlueSpaceGlow />
+      <SpaceStars />
+
+      <ambientLight intensity={0.48} />
+      <directionalLight
+        position={[5, 8, 5]}
+        intensity={3.7}
+        color="#dff4ff"
+        castShadow
+      />
+      <spotLight
+        position={[-5, 5, -4]}
+        intensity={20}
+        angle={0.5}
+        penumbra={1}
+        color="#3aaee9"
+      />
+      <pointLight
+        position={[2, 3, 4]}
+        intensity={8}
+        distance={14}
+        color="#bceaff"
+      />
 
       <group ref={hero}>
         <Boy />
@@ -741,5 +1124,5 @@ export default function Experience({
   )
 }
 
-useGLTF.preload(assetUrl('models/boy-reference.glb'))
-useGLTF.preload(assetUrl('models/rock-reference.glb'))
+useLoader.preload(STLLoader, assetUrl('models/boy.stl'))
+useLoader.preload(STLLoader, assetUrl('models/rockl.stl'))
